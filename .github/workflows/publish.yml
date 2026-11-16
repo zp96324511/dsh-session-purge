@@ -1,0 +1,102 @@
+name: Publish
+
+# Pushing a tag is the only way a release appears: the tag names the version in
+# package.json, and the release carries the tarball, its checksum, and the
+# channel.json the upgrade docs point at.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (for example v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Check the tag matches package.json
+        run: |
+          node -e '
+            const version = require("./package.json").version;
+            const tag = process.env.TAG.replace(/^v/, "");
+            if (version !== tag) {
+              console.error(`package.json is ${version} but the tag says ${tag}`);
+              process.exit(1);
+            }
+            console.log(`publishing ${version}`);
+          '
+
+      - name: Unit tests
+        run: node --test test/
+
+      - name: Pack the plugin and build the channel
+        id: pack
+        run: |
+          npm pack --json > pack.json
+          TARBALL=$(node -e "console.log(require('./pack.json')[0].filename)")
+          cp "$TARBALL" dsh-session-purge.tgz
+          VERSION=$(node -p 'require("./package.json").version')
+          cp dsh-session-purge.tgz "dsh-session-purge-$VERSION.tgz"
+          node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync, writeFileSync, statSync } = require("node:fs");
+            const pkg = require("./package.json");
+            const version = pkg.version;
+            const stable = "dsh-session-purge.tgz";
+            const bytes = readFileSync(stable);
+            const channel = {
+              name: pkg.name,
+              channel: "stable",
+              latest: version,
+              versions: {
+                [version]: {
+                  url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/v${version}/${stable}`,
+                  sha256: createHash("sha256").update(bytes).digest("hex"),
+                  size: statSync(stable).size,
+                  engines: pkg.engines ?? {},
+                  publishedAt: new Date().toISOString(),
+                  notes: pkg.description
+                }
+              },
+              homepage: pkg.homepage,
+              updatedAt: new Date().toISOString()
+            };
+            writeFileSync("channel.json", `${JSON.stringify(channel, null, 2)}\n`);
+          '
+          sha256sum dsh-session-purge.tgz > dsh-session-purge.tgz.sha256
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release if it is missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 || \
+            gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+
+      - name: Upload the assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p 'require("./package.json").version')
+          gh release upload "$TAG" \
+            dsh-session-purge.tgz \
+            "dsh-session-purge-$VERSION.tgz" \
+            channel.json \
+            dsh-session-purge.tgz.sha256 \
+            --clobber

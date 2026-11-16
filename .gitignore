@@ -1,0 +1,23 @@
+# 依赖与打包产物
+node_modules/
+*.tgz
+*.tgz.sha256
+pack.json
+listing.txt
+channel.json
+
+# 插件运行期数据（默认写在 $DSH_HOME 下；万一被指到仓库里也不进版本库）
+session-purge/
+*.log
+state.json*
+
+# 备份与临时文件
+*.bak
+*.bak-*
+*.tmp
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

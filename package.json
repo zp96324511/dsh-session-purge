@@ -1,0 +1,56 @@
+{
+  "name": "dsh-session-purge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "归档会话的分段回收：mtime 满 30 天的归档会话移入独立回收站，回收站条目满 7 天再彻底删除；默认 dry-run，自带 restore CLI。",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "author": "zp96324511",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zp96324511/dsh-session-purge.git"
+  },
+  "homepage": "https://github.com/zp96324511/dsh-session-purge#readme",
+  "bugs": {
+    "url": "https://github.com/zp96324511/dsh-session-purge/issues"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./restore": "./restore.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "restore.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "HANDOFF.md",
+    "scripts",
+    "test"
+  ],
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "session",
+    "garbage-collection",
+    "trash"
+  ],
+  "engines": {
+    "node": ">=22.13.0",
+    "dsh": ">=0.2.2-rc.1"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "check": "node --check index.js && node --check restore.mjs",
+    "dry-run": "node scripts/real-dry-run.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

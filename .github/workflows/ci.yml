@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Syntax check
+        shell: bash
+        run: |
+          node --check index.js
+          node --check restore.mjs
+          node --check scripts/real-dry-run.mjs
+
+      - name: Unit tests
+        run: node --test test/
+
+      - name: Pack the plugin
+        shell: bash
+        run: npm pack --json > pack.json
+
+      # A file missing from `files` only fails after a user installs the tarball,
+      # so the listing is asserted here instead.
+      - name: Verify the tarball contents
+        shell: bash
+        run: |
+          TARBALL=$(node -e "console.log(require('./pack.json')[0].filename)")
+          echo "tarball: $TARBALL"
+          tar -tzf "$TARBALL" | tee listing.txt
+          for file in package.json index.js restore.mjs cordis.patch.yml README.md LICENSE; do
+            grep -qx "package/$file" listing.txt || { echo "missing package/$file"; exit 1; }
+          done
+
+      # Install it the way a consumer does and read what actually lands.
+      - name: Install the tarball into a scratch directory
+        shell: bash
+        run: |
+          TARBALL=$(node -e "console.log(require('./pack.json')[0].filename)")
+          SCRATCH="$RUNNER_TEMP/consumer"
+          mkdir -p "$SCRATCH"
+          cd "$SCRATCH"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE/$TARBALL" > /dev/null
+          node -e '
+            const { readFileSync } = require("node:fs");
+            const pkg = require("./node_modules/dsh-session-purge/package.json");
+            for (const file of ["index.js", "restore.mjs", "cordis.patch.yml"]) {
+              readFileSync(`./node_modules/dsh-session-purge/${file}`);
+            }
+            import("./node_modules/dsh-session-purge/index.js").then((mod) => {
+              if (mod.name !== "dsh-session-purge" || typeof mod.apply !== "function") {
+                console.error("plugin exports are wrong");
+                process.exit(1);
+              }
+              console.log(`installed ${pkg.name}@${pkg.version}`);
+            });
+          '
