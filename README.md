@@ -49,7 +49,7 @@ dsh plugin --profile web add https://github.com/zp96324511/dsh-session-purge/rel
 重启后 60 秒跑第一轮，之后每 24 小时一轮。先看日志：
 
 ```powershell
-Get-Content C:\Users\win10\.dsh\logs\session-purge.log -Tail 50
+Get-Content $env:USERPROFILE\.dsh\logs\session-purge.log -Tail 50
 ```
 
 确认 `eligible` 数目符合预期、再打开 `dryRun: false`。
@@ -57,10 +57,10 @@ Get-Content C:\Users\win10\.dsh\logs\session-purge.log -Tail 50
 ### 本地开发
 
 ```powershell
-cd C:\data\projects\dsh-session-purge
+cd path\to\dsh-session-purge
 node --test "test/**/*.test.mjs"
-# 本机禁止建符号链接，用 file:（pnpm 以硬链接放入 node_modules）；改完源码要重新 add
-dsh plugin --profile web add file:C:/data/projects/dsh-session-purge
+# 本机禁止建符号链接时用 file:（pnpm 以硬链接放入 node_modules）；改完源码要重新 add
+dsh plugin --profile web add file:C:/path/to/dsh-session-purge
 ```
 
 > 同一个 profile 里 GitHub 版与 `file:` 版只能装一个，后装的覆盖前者。
@@ -99,7 +99,7 @@ dsh plugin --profile web remove dsh-session-purge
 ## 回收站布局
 
 ```text
-C:\Users\win10\.dsh\session-purge\
+%USERPROFILE%\.dsh\session-purge\
   state.json                  # 最近运行 + 累计统计（不是正确性来源）
   state.json.lock             # 单飞锁（restore.mjs 共用）
   trash\
@@ -116,10 +116,12 @@ C:\Users\win10\.dsh\session-purge\
 ## 恢复
 
 ```powershell
-node C:\data\projects\dsh-session-purge\restore.mjs --list
-node C:\data\projects\dsh-session-purge\restore.mjs --session session-209ac311-fe6f-4bc4-bdfc-bfa8bbbe8a27
-node C:\data\projects\dsh-session-purge\restore.mjs --entry 20261113T014500123Z__session-209ac311-...
-node C:\data\projects\dsh-session-purge\restore.mjs --session <id> --dry-run
+# restore.mjs 随包安装；源码目录里是同一份
+$plugin = "$env:USERPROFILE\.dsh\profiles\web\node_modules\dsh-session-purge"
+node "$plugin\restore.mjs" --list
+node "$plugin\restore.mjs" --session session-209ac311-fe6f-4bc4-bdfc-bfa8bbbe8a27
+node "$plugin\restore.mjs" --entry 20261113T014500123Z__session-209ac311-...
+node "$plugin\restore.mjs" --session <id> --dry-run
 ```
 
 - 恢复只做「文件回位」，**不改 `workspace.json`**：该 id 本来还在归档集合里，文件回来后重启 DSH 就会重新出现在归档视图。
@@ -159,8 +161,8 @@ node C:\data\projects\dsh-session-purge\restore.mjs --session <id> --dry-run
 不启动宿主、不写任何文件，直接对真实 `~/.dsh` 算一遍：
 
 ```powershell
-node C:\data\projects\dsh-session-purge\scripts\real-dry-run.mjs
-node C:\data\projects\dsh-session-purge\scripts\real-dry-run.mjs --json
+node "$plugin\scripts\real-dry-run.mjs"          # $plugin 见上（恢复一节）
+node "$plugin\scripts\real-dry-run.mjs" --json
 ```
 
 它自己扫 `sessions/`、解压每个会话日志的第一行取 header、读 `workspace.json` / `schedule.json`，然后调用插件里同一个 `planMoves()`。2026-11-13 的实测输出：扫描 183、归档 86（48 个有 live 文件共 11.6 MB，38 个只在 `sessions-archive` 有副本）、满足条件 **0**（最老 25.0 天）、回收站为空。`eligible=0` 是正确结果，不是失败。
@@ -168,7 +170,7 @@ node C:\data\projects\dsh-session-purge\scripts\real-dry-run.mjs --json
 ## 测试
 
 ```powershell
-cd C:\data\projects\dsh-session-purge
+cd path\to\dsh-session-purge
 node --test "test/**/*.test.mjs"
 ```
 
@@ -186,6 +188,23 @@ node --test "test/**/*.test.mjs"
 6. **38 个「只在 `sessions-archive` 有副本」的归档 id**：不在 `sessions/` 下，没有 mtime 可算，插件不处理（`reason=no-snapshot`）。
 7. **`fast-search.db`**：删除会话文件后由 fast-search 自己的 watcher 清索引行，db 文件不会缩小；需要缩容要停 DSH 后 `VACUUM`，本插件不做。
 8. **不做在线 SQLite 操作、不动 `attachments`、不注册回收站为 workspace、不自动恢复**。
+
+## 发布新版本
+
+改版本号、提交、打 tag，剩下的交给 workflow：
+
+```powershell
+npm version patch --no-git-tag-version    # 或 minor / major
+git commit -am "chore: release v0.1.1"
+git push
+git tag -a v0.1.1 -m "v0.1.1"
+git push origin v0.1.1
+```
+
+`.github/workflows/publish.yml` 会校验 tag 与 `package.json` 版本一致、跑测试、打包，然后创建 release，附带
+`dsh-session-purge.tgz`（稳定文件名，供 `releases/latest/download` 用）、`dsh-session-purge-<ver>.tgz`、
+`channel.json` 与 `.sha256`。CI（`ci.yml`）在 ubuntu 与 windows 上跑同一套测试，并把打包产物装进临时目录
+`import` 一次，确保 `files` 没漏东西。
 
 ## 文件
 

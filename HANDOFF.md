@@ -911,3 +911,19 @@ reasons: not-eligible=48  no-snapshot=38
 1. 真实数据上的第一次移动预计在 **2026-11-18 下午**：届时有 7 条归档会话越过 30 天（当时最老 27.9 天）。
 2. 真实的移动/删除目前只在 `mkdtemp` fixture 里验证过（`runOnce` / `purgeTrash` / `restoreEntry` 用例）；首次真实移动后应核对回收站 `meta.json` 与旧路径是否都符合预期。
 3. 移动后到宿主重启前，前端会话列表可能仍显示旧条目（运行中缓存），属已知行为。
+4. 安装源已改为 GitHub release tarball（§17）；当前运行的宿主进程内存里仍是 `file:` 安装时加载的同版本代码，下次重启后从 `node_modules` 的 release 副本加载。
+
+## 17. GitHub 发布（2026-11-16）
+
+- 仓库：<https://github.com/zp96324511/dsh-session-purge>（Public）。空仓库在网页端创建——本机没有 gh CLI、没有 `GITHUB_TOKEN`，`git credential fill` 会挂住（GCM 交互被阻断），SSH key 只能推已存在的仓库。
+- 分支 `main`，提交 `a4c0235`（首个实现）与 `89116b1`（CI 修好后的提交）；tag `v0.1.0`。
+- 发布链路：push `v*` tag → `.github/workflows/publish.yml` → 校验 tag 与 `package.json` 版本一致 → 跑测试 → `npm pack` → 生成 `channel.json` 与 `.sha256` → `gh release create --verify-tag` + 上传四个资产。首个 release：<https://github.com/zp96324511/dsh-session-purge/releases/tag/v0.1.0>（`dsh-session-purge.tgz`、`dsh-session-purge-0.1.0.tgz`、`channel.json`、`dsh-session-purge.tgz.sha256`）。
+- CI：`.github/workflows/ci.yml`，ubuntu-latest + windows-latest，Node 24，语法检查 → 测试 → 打包 → 清单校验 → 装进临时目录 import 断言。两条 workflow 在 `89116b1` 上全绿。
+- 安装源已从 `file:` 切到 release tarball：`dsh plugin --profile web add https://github.com/zp96324511/dsh-session-purge/releases/download/v0.1.0/dsh-session-purge.tgz`。安装副本与源码 `index.js`/`restore.mjs` 的 sha256 一致；`--dump-config` 里 profile 覆盖层仍生效（`dryRun: false` + 绝对路径）。pnpm 提示 `Replaced ... from a different source`，属预期。
+- 分层：包内 `cordis.patch.yml` 只放安全缺省（`dryRun: true`、不写路径）；本机的真实模式与绝对路径放在 profile 的 `- id: session-purge`（config 整体替换、不深合并）。
+- 升级规则：换成新版本 tag 的 URL；`latest/download` 的 specifier 不变时 pnpm 不会重新解析。
+
+### 17.1 CI 踩的两个坑
+
+1. `node --test test/`：Node 22–24 把目录参数当模块解析，直接 `MODULE_NOT_FOUND`，一个测试都没跑（本地 Node 26 容忍，所以本地全绿、CI 全红）。改用 glob：`node --test "test/**/*.test.mjs"`，`package.json`、两个 workflow、README、本文档同步改。
+2. junction 用例：本机在 Windows 上创建重解析点既不返回也不报错，要 35 s+ 才失败，一套测试从 10 s 涨到 110 s。改为仅在非 Windows 或显式 `DSH_TEST_SYMLINKS=1` 时尝试，Windows 上 skip；Linux CI 覆盖同一代码路径。
