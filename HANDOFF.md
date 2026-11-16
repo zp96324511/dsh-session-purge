@@ -860,7 +860,7 @@ export async function apply(ctx, config = {}) {
 
 ### 16.2 测试
 
-`node --test test/` → **35 tests, 34 pass, 1 skipped, 0 fail**（约 10 s）。
+`node --test "test/**/*.test.mjs"` → **35 tests, 34 pass, 1 skipped, 0 fail**（约 10 s）。
 
 唯一 skip 的是符号链接/junction 用例：本机进程无法创建 reparse point（`fs.symlink` 报 EPERM，`mklink /J`、`New-Item -ItemType Junction` 报 Access denied）。代码里的 `lstat` 守卫仍然生效，只是没法在测试里造出敌人的链接。
 

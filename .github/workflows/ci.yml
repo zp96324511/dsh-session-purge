@@ -32,7 +32,7 @@ jobs:
           node --check scripts/real-dry-run.mjs
 
       - name: Unit tests
-        run: node --test test/
+        run: node --test "test/**/*.test.mjs"
 
       - name: Pack the plugin
         shell: bash

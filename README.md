@@ -58,7 +58,7 @@ Get-Content C:\Users\win10\.dsh\logs\session-purge.log -Tail 50
 
 ```powershell
 cd C:\data\projects\dsh-session-purge
-node --test test/
+node --test "test/**/*.test.mjs"
 # 本机禁止建符号链接，用 file:（pnpm 以硬链接放入 node_modules）；改完源码要重新 add
 dsh plugin --profile web add file:C:/data/projects/dsh-session-purge
 ```
@@ -169,7 +169,7 @@ node C:\data\projects\dsh-session-purge\scripts\real-dry-run.mjs --json
 
 ```powershell
 cd C:\data\projects\dsh-session-purge
-node --test test/
+node --test "test/**/*.test.mjs"
 ```
 
 35 个用例，全程在 `mkdtemp` 的临时 home 里跑，不碰真实数据：路径逃逸/深度/符号链接、家族父子保护与截断、30/7 天两条保留期、dry-run 无副作用、guard 失败仍清回收站、锁与 stale 锁、恢复与拒绝覆盖。

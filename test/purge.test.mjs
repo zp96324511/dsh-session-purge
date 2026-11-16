@@ -7,16 +7,11 @@
  */
 
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
-
 import {
   LockBusyError,
   acquireLock,
@@ -40,6 +35,15 @@ import {
 
 const DAY = 86_400_000
 const PKG = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+
+/**
+ * 测试里能不能造符号链接/junction。
+ *
+ * 本机（Windows + 受限策略）创建重解析点既不报错也不返回，实测 35s+ 才失败，
+ * 白等一分多钟；Linux CI 上 symlink(2) 正常，同一段代码在那儿照常覆盖。
+ */
+const symlinkTestsEnabled = process.platform !== 'win32' || process.env.DSH_TEST_SYMLINKS === '1'
+const SYMLINK_SKIP = 'Windows 上创建符号链接/junction 被本环境阻断；Linux CI 覆盖同一代码路径（DSH_TEST_SYMLINKS=1 可强制尝试）'
 
 /** 合法会话 id（`session-<uuid>`，全小写十六进制）。 */
 function newSessionId() {
@@ -315,27 +319,17 @@ test('resolveSessionDir：非法 id / 文件名 / 目录名 / 深度 / 逃逸都
 })
 
 test('resolveSessionDir：符号链接/junction 被拒绝', async (t) => {
+  if (!symlinkTestsEnabled) {
+    t.skip(SYMLINK_SKIP)
+    return
+  }
   const home = await makeHome()
   const config = configFor(home)
   const target = await addSession(config, { workspaceDir: '--real--' })
   const linkParent = path.join(config.sessionsRoot, '--linked--')
   await mkdir(linkParent, { recursive: true })
   const linkDir = path.join(linkParent, target.id)
-  let created = false
-  try {
-    await symlink(target.dir, linkDir, 'junction')
-    created = true
-  } catch {
-    /* 没有 Developer Mode 时 Node 的 symlink 会 EPERM；junction 用 mklink 通常免管理员。 */
-    try {
-      await execFileAsync('cmd.exe', ['/c', 'mklink', '/J', linkDir, target.dir])
-      created = true
-    } catch (error) {
-      t.skip(`当前环境不能创建 junction：${error.message}`)
-      return
-    }
-  }
-  assert.equal(created, true)
+  await symlink(target.dir, linkDir, 'junction')
   const resolved = await resolveSessionDir(config, {
     header: { id: target.id },
     location: { kind: 'jsonl', path: path.join(linkDir, 'session.v4.jsonl.zstd') },
@@ -558,14 +552,11 @@ test('purgeTrash：不认识的条目名与符号链接不碰', async (t) => {
   const when = new Date(Date.now() - 30 * DAY)
   await utimes(stranger, when, when)
 
-  let linkCreated = false
   const junctionPath = path.join(config.trashRoot, `${utcCompact(Date.now())}__${newSessionId()}`)
-  try {
-    await symlink(stranger, junctionPath, 'junction')
-    linkCreated = true
-  } catch {
+  let linkCreated = false
+  if (symlinkTestsEnabled) {
     try {
-      await execFileAsync('cmd.exe', ['/c', 'mklink', '/J', junctionPath, stranger])
+      await symlink(stranger, junctionPath, 'junction')
       linkCreated = true
     } catch {
       linkCreated = false
